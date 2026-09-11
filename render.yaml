@@ -2,6 +2,7 @@ services:
   - type: web
     name: claims-coda
     runtime: static
+    autoDeploy: true
     buildCommand: npm run build
     staticPublishPath: ./dist
     headers:
