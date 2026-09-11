@@ -1,0 +1,239 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #0B0B0A;
+  --color-brand-surface: #141310;
+  --color-brand-surface-light: #1B1914;
+  --color-brand-gold: #B99845;
+  --color-brand-gold-muted: #8A7233;
+  --color-brand-text: #F3EFE6;
+  --color-brand-text-muted: #A3A199;
+  --color-brand-border: #322D22;
+}
+
+/* ==========================================================================
+   ClaimCoda "Warm Clay" design language
+   A matte, tactile hybrid of claymorphism (soft, rounded, pillowy volume)
+   and neumorphism (surfaces that read as extruded/pressed from one shared
+   material) laid on top of the existing brand utility classes. Because
+   Tailwind v4 utilities live inside a named CSS layer, this plain
+   (un-layered) block below wins the cascade automatically — no !important,
+   no per-file edits, applies to every screen already using these classes.
+   ========================================================================== */
+
+:root {
+  --clay-light: rgba(255, 247, 227, 0.045);
+  --clay-light-strong: rgba(255, 247, 227, 0.075);
+  --clay-shadow: rgba(0, 0, 0, 0.55);
+  --clay-shadow-strong: rgba(0, 0, 0, 0.72);
+  --clay-radius-md: 14px;
+  --clay-radius-lg: 20px;
+  --clay-radius-xl: 28px;
+  --clay-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-brand-bg);
+  background-image:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(185, 152, 69, 0.06), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 100% 10%, rgba(185, 152, 69, 0.035), transparent 55%);
+  color: var(--color-brand-text);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  position: relative;
+}
+
+/* Subtle matte grain — kills any glossy/plastic read and keeps the clay
+   surfaces feeling soft-touch rather than glassy. Fixed + non-interactive. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Rounder, "clay" corner scale ------------------------------------------- */
+.rounded-xl {
+  border-radius: var(--clay-radius-md) !important;
+}
+.rounded-2xl {
+  border-radius: var(--clay-radius-lg) !important;
+}
+.rounded-3xl {
+  border-radius: var(--clay-radius-xl) !important;
+}
+
+/* Raised clay panels ------------------------------------------------------ */
+.bg-brand-surface {
+  background-image: linear-gradient(155deg, var(--clay-light) 0%, rgba(0, 0, 0, 0) 35%);
+  box-shadow:
+    9px 9px 20px var(--clay-shadow),
+    -7px -7px 18px var(--clay-light),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.bg-brand-surface-light {
+  background-image: linear-gradient(155deg, var(--clay-light) 0%, rgba(0, 0, 0, 0) 45%);
+  box-shadow:
+    5px 5px 12px var(--clay-shadow),
+    -4px -4px 10px var(--clay-light),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+/* Soften hairline borders so shadow — not line weight — carries the depth */
+.border-brand-border {
+  border-color: rgba(255, 247, 227, 0.06) !important;
+}
+
+/* Recessed / pressed fields (inputs, selects, textareas) ------------------ */
+input,
+select,
+textarea {
+  transition: box-shadow 0.2s var(--clay-ease);
+}
+
+input[class*="bg-brand-bg"],
+select[class*="bg-brand-bg"],
+textarea[class*="bg-brand-bg"],
+input[class*="bg-brand-surface"],
+select[class*="bg-brand-surface"],
+textarea[class*="bg-brand-surface"] {
+  box-shadow:
+    inset 3px 3px 7px rgba(0, 0, 0, 0.55),
+    inset -2px -2px 5px rgba(255, 247, 227, 0.03);
+}
+
+input[class*="bg-brand-bg"]:focus,
+select[class*="bg-brand-bg"]:focus,
+textarea[class*="bg-brand-bg"]:focus,
+input[class*="bg-brand-surface"]:focus,
+select[class*="bg-brand-surface"]:focus,
+textarea[class*="bg-brand-surface"]:focus {
+  box-shadow:
+    inset 3px 3px 7px rgba(0, 0, 0, 0.55),
+    inset -2px -2px 5px rgba(255, 247, 227, 0.03),
+    0 0 0 3px rgba(185, 152, 69, 0.18);
+}
+
+/* Tactile buttons ----------------------------------------------------------
+   Any clickable pill/rounded button in the app gets a soft raised-clay press
+   interaction: lift slightly on hover, compress into the surface on click. */
+button:not(:disabled) {
+  transition: box-shadow 0.2s var(--clay-ease), transform 0.12s var(--clay-ease), filter 0.2s var(--clay-ease);
+}
+
+button.bg-brand-gold:not(:disabled) {
+  box-shadow:
+    5px 5px 12px rgba(0, 0, 0, 0.4),
+    -3px -3px 9px rgba(255, 210, 140, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+button.bg-brand-gold:not(:disabled):hover {
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+  box-shadow:
+    7px 7px 16px rgba(0, 0, 0, 0.42),
+    -4px -4px 11px rgba(255, 210, 140, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+button.bg-brand-gold:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+  box-shadow:
+    inset 3px 3px 8px rgba(0, 0, 0, 0.35),
+    inset -2px -2px 6px rgba(255, 210, 140, 0.1);
+}
+
+button.bg-brand-surface:not(:disabled):hover,
+button.bg-brand-surface-light:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+button.bg-brand-surface:not(:disabled):active,
+button.bg-brand-surface-light:not(:disabled):active {
+  transform: translateY(0) scale(0.96);
+  box-shadow:
+    inset 2px 2px 6px rgba(0, 0, 0, 0.5),
+    inset -2px -2px 5px var(--clay-light);
+}
+
+/* Scrollbar polish, matches the matte material */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(185, 152, 69, 0.25);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(185, 152, 69, 0.4);
+  background-clip: padding-box;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ---- Reusable clay/neu primitives for hand-authored components --------- */
+
+.cc-orb {
+  position: relative;
+  border-radius: 9999px;
+  background: linear-gradient(155deg, #1c1a14, #100f0c);
+  box-shadow:
+    6px 6px 14px var(--clay-shadow-strong),
+    -5px -5px 12px var(--clay-light-strong),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+.cc-orb-active {
+  box-shadow:
+    6px 6px 14px var(--clay-shadow-strong),
+    -5px -5px 12px var(--clay-light-strong),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05),
+    0 0 0 3px rgba(185, 152, 69, 0.22),
+    0 0 22px rgba(185, 152, 69, 0.25);
+}
+
+.cc-inset {
+  background: linear-gradient(155deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0));
+  box-shadow:
+    inset 4px 4px 10px rgba(0, 0, 0, 0.55),
+    inset -3px -3px 8px rgba(255, 247, 227, 0.035);
+}
+
+.cc-pulse-ring {
+  animation: cc-pulse 2.2s var(--clay-ease) infinite;
+}
+@keyframes cc-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(185, 152, 69, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(185, 152, 69, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(185, 152, 69, 0);
+  }
+}
+
+.cc-bar {
+  border-radius: 999px;
+  transform-origin: bottom;
+  transition: height 0.09s ease-out, background-color 0.2s ease, box-shadow 0.2s ease;
+}

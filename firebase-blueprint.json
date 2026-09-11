@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "consentVersion": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "createdAt"]
+    },
+    "Case": {
+      "title": "Case",
+      "description": "A denial case.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["draft", "active", "appealing", "resolved", "archived"] },
+        "planContext": { "type": "string", "maxLength": 512 },
+        "denialCategory": { "type": "string", "maxLength": 256 },
+        "verifiedDeadline": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "status", "createdAt", "updatedAt"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "A document associated with a case.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "caseId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["denial", "eob", "medical_record", "other"] },
+        "storageUri": { "type": "string", "maxLength": 1024 },
+        "ocrStatus": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "caseId", "type", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "/cases/{caseId}": {
+      "schema": { "$ref": "#/entities/Case" },
+      "description": "Stores denial cases owned by users."
+    },
+    "/cases/{caseId}/documents/{documentId}": {
+      "schema": { "$ref": "#/entities/Document" },
+      "description": "Stores documents uploaded for a specific case."
+    }
+  }
+}
