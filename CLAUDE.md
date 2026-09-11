@@ -61,6 +61,7 @@ App_ClaimsCoda/
 │   │   ├── elevenLabsService.ts        # ElevenLabs streaming TTS — default, natural voice engine
 │   │   ├── geminiLiveClient.ts         # WebSocket client for Gemini Multimodal Live API (advanced/beta)
 │   │   ├── geminiService.ts            # Gemini 2.5 Flash document parser, draft builder & prompts
+│   │   ├── documentIngest.ts           # Real PDF text extraction (pdf.js) for uploaded denials/EOBs — never fabricates content
 │   │   ├── voiceSynthesis.ts           # Browser SpeechSynthesis — last-resort fallback voice engine
 │   │   ├── pdfExporter.ts              # Dynamic multi-page PDF generation engine
 │   │   ├── denialStrategies.ts         # 8 denial categories & evidence requirements
@@ -103,3 +104,21 @@ An alternate engine (Settings → Gemini Live (Beta)) connects directly to Googl
 - API keys (Gemini, ElevenLabs) are stored client-side in browser `localStorage`, or via `.env.local` (`VITE_GEMINI_API_KEY`, `VITE_ELEVENLABS_API_KEY`).
 - Keys are **never exposed in cleartext** in the UI (masked with password fields).
 - Standard Google AI Studio API keys begin with `AIzaSy...`.
+
+---
+
+## 6. Document Ingestion (Real Uploads)
+
+`src/lib/documentIngest.ts` reads real PDF text via `pdf.js` (`pdfjs-dist`) when a user uploads a denial/EOB PDF in `CaseView.tsx`. This replaced an earlier version that, for any non-`.txt` upload, silently substituted a hardcoded fake "Adverse Benefit Determination Notice" regardless of the file's actual content — meaning real uploads were never really analyzed. That has been fixed: PDFs with an embedded text layer are read for real; a scanned PDF with no text layer, or a PNG/JPG, is reported to the user as unreadable rather than fed fake content into extraction (there is no OCR pipeline yet — see gap below). Run `npm install` after pulling this change to pick up the new `pdfjs-dist` dependency.
+
+`src/components/EvidenceManager.tsx`'s "Attach Document" control was also fixed: it used to fabricate a filename from the checklist label and mark the item "Attached" with no file ever selected. It now requires an actual file pick.
+
+## 7. Known Gaps vs. the TRD (as of Sep 2026 review)
+
+Tracked here so nothing gets silently re-broken or forgotten before a real (non-synthetic) pilot:
+
+- **No OCR for scanned/image documents.** `documentIngest.ts` only reads a PDF's embedded text layer. A flat scan or a PNG/JPG denial letter is currently rejected with a clear message rather than faked — this is honest, but it means image-based denials can't be processed yet. TRD's fallback is Document AI OCR, which needs a server component (see next point).
+- **No server-side orchestrator.** The TRD calls for "Node/Cloud Run + schema validators + RBAC" keeping Gemini/ElevenLabs keys server-side. This app is currently a pure static SPA (`render.yaml`/`vercel.json` both deploy it as static hosting) with API keys bundled into the client via `VITE_`-prefixed env vars or stored in `localStorage`. That's expected and fine for the AI Studio-first prototype/pilot phase the TRD itself describes, but it is a real key-exposure risk (anyone can read the key out of the deployed bundle) that must be closed — by moving Gemini/ElevenLabs calls behind a real backend — before any paid/production launch with a real committed key.
+- **No `.gitignore` existed** until this pass — added one covering `node_modules/`, `dist/`, `.env*`, etc. If `.env` (which currently holds a real `VITE_GEMINI_API_KEY`) was ever committed to the GitHub repo before this fix, treat that key as compromised: rotate it in Google AI Studio and scrub it from git history — adding `.gitignore` now does not remove it retroactively.
+- **No `audit_events` collection / full audit log.** `AppealDraft` does capture `promptVersion`, `modelUsed`, `generatedAt`, and `userApprovedAt`, which covers most of the TRD's P0 "Audit" requirement at the artifact level, but there's no separate log of sensitive state transitions (fact edits, exports, confirmations) as the TRD's data model lists.
+- **Firestore schema doc (`firebase-blueprint.json`) is stale** — it only documents `users`, `cases`, and `documents`, not the `extractedFacts`/`evidenceItems`/`appealDraft` fields actually embedded in each case document (which `firestore.rules` does correctly allow and protect). Not a functional bug, just a documentation gap.
