@@ -276,7 +276,12 @@ export async function generateGroundedAppealDraft(params: {
   senderName?: string;
   memberId?: string;
 }): Promise<AppealDraft> {
-  const { confirmedFacts, evidenceItems, planContext, category, userNarrative = '', senderName = 'Member / Patient', memberId = '' } = params;
+  const { confirmedFacts: providedFacts, evidenceItems, planContext, category, userNarrative = '', senderName = 'Member / Patient', memberId = '' } = params;
+
+  // Defense in depth: the review step already gates progress on 100% fact
+  // confirmation, but the draft generator never trusts that gate alone —
+  // unconfirmed facts are never used for final drafting (TRD §5, §11).
+  const confirmedFacts = providedFacts.filter((f) => f.confirmed);
 
   const factMap = new Map<string, string>();
   confirmedFacts.forEach((f) => factMap.set(f.fieldKey, f.value));

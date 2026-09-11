@@ -25,20 +25,17 @@ export function EvidenceManager({
   const [newLabel, setNewLabel] = useState('');
   const [showAddCustom, setShowAddCustom] = useState(false);
 
-  const handleSimulateAttach = (id: string) => {
-    const updated = evidenceItems.map((item) => {
-      if (item.id === id) {
-        return {
-          ...item,
-          attached: true,
-          fileName: item.fileName || `${item.label.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}.pdf`,
-          uploadedAt: new Date().toISOString(),
-        };
-      }
-      return item;
-    });
+  // Records a real, user-picked file's name/size against this checklist item.
+  // This never fabricates a filename — an item is only marked "Attached"
+  // once the user has actually selected a file for it.
+  const handleAttachFile = (id: string, file: File) => {
+    const updated = evidenceItems.map((item) =>
+      item.id === id
+        ? { ...item, attached: true, fileName: file.name, fileSize: file.size, uploadedAt: new Date().toISOString() }
+        : item
+    );
     onUpdateEvidence(updated);
-    notify('Evidence document attached to case packet.', 'success');
+    notify(`"${file.name}" noted on your evidence checklist.`, 'success');
   };
 
   const handleDetach = (id: string) => {
@@ -209,13 +206,20 @@ export function EvidenceManager({
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => handleSimulateAttach(item.id)}
-                  className="flex items-center gap-2 text-xs bg-brand-surface-light border border-brand-border hover:border-brand-gold/50 text-brand-text px-4 py-2 rounded-lg transition-all"
-                >
+                <label className="flex items-center gap-2 text-xs bg-brand-surface-light border border-brand-border hover:border-brand-gold/50 text-brand-text px-4 py-2 rounded-lg transition-all cursor-pointer">
                   <Paperclip className="w-3.5 h-3.5 text-brand-gold" />
                   <span>Attach Document</span>
-                </button>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) handleAttachFile(item.id, file);
+                    }}
+                  />
+                </label>
               )}
             </div>
           </div>

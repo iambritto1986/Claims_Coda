@@ -13,6 +13,7 @@ import {
   PlanContextType,
 } from '../types/claimcoda';
 import { extractDenialFacts, generateGroundedAppealDraft } from '../lib/geminiService';
+import { extractPdfText, validateUploadFile, DocumentIngestError } from '../lib/documentIngest';
 import { SAMPLE_DENIALS } from '../lib/sampleDenials';
 import { generateDefaultEvidenceList } from '../lib/denialStrategies';
 import { DualPaneSourceViewer } from '../components/DualPaneSourceViewer';
@@ -163,31 +164,56 @@ export default function CaseView() {
     await handleProcessDocumentText(sample.rawDocumentText, `${sample.title}.pdf`);
   };
 
-  // Upload file handler
+  // Upload file handler — reads the user's actual file. It never substitutes
+  // fabricated/simulated content: if a file can't be read for real (a scanned
+  // image with no text layer, an unreadable PDF, an image format), the user
+  // is told plainly rather than being shown facts extracted from fake text.
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file after an error
     if (!file) return;
 
-    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+    try {
+      validateUploadFile(file);
+    } catch (err: any) {
+      notify(err instanceof DocumentIngestError ? err.message : 'That file could not be uploaded.', 'error');
+      return;
+    }
+
+    const nameLower = file.name.toLowerCase();
+
+    if (file.type === 'text/plain' || nameLower.endsWith('.txt')) {
       const text = await file.text();
       await handleProcessDocumentText(text, file.name);
-    } else {
-      // For PDF / Images in browser, read file and extract or provide clean OCR buffer
-      const reader = new FileReader();
-      reader.onload = async () => {
-        // Read file content and run extraction
-        const simText = `[INGESTED FILE: ${file.name} | Size: ${(file.size / 1024).toFixed(1)} KB]
-Adverse Benefit Determination Notice
-Date: ${new Date().toLocaleDateString()}
-Claim: CLM-2025-${Math.floor(100000 + Math.random() * 900000)}
-Provider: Regional Healthcare Specialist
-Billed Charges: $4,250.00 | Allowed: $0.00 | Denied: $4,250.00
-Denial Reason: Service is not deemed medically necessary under plan clinical criteria.
-Appeal Right: You may appeal within 180 days of receipt.`;
-        await handleProcessDocumentText(simText, file.name);
-      };
-      reader.readAsText(file);
+      return;
     }
+
+    if (file.type === 'application/pdf' || nameLower.endsWith('.pdf')) {
+      setIsExtracting(true);
+      try {
+        const result = await extractPdfText(file);
+        if (!result.hasExtractableText) {
+          notify(
+            "This PDF looks like a scanned image with no selectable text, so it can't be read automatically yet (no OCR pipeline is wired up). Try a text-based PDF export of your denial letter, or use a synthetic sample below to test the workflow.",
+            'error'
+          );
+          return;
+        }
+        await handleProcessDocumentText(result.text, file.name);
+      } catch (err: any) {
+        notify(err instanceof DocumentIngestError ? err.message : 'Could not read that PDF.', 'error');
+      } finally {
+        setIsExtracting(false);
+      }
+      return;
+    }
+
+    // PNG/JPG: no client-side OCR pipeline exists yet. Be honest instead of
+    // fabricating extracted facts from a file we can't actually read.
+    notify(
+      "Image uploads (PNG/JPG) need OCR, which isn't available yet. Please upload the PDF version of your denial letter or EOB, or use a synthetic sample below.",
+      'error'
+    );
   };
 
   // 2. Fact Confirmation Handlers
