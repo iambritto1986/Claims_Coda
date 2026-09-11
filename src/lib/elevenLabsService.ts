@@ -228,29 +228,58 @@ export async function speakWithElevenLabs(text: string, options: SpeakOptions = 
       throw new Error(`ElevenLabs TTS failed (${response.status}): ${detail.slice(0, 200)}`);
     }
 
-    const blob = await new Response(response.body).blob();
+    // Read the blob directly off the original response so its real
+    // Content-Type (audio/mpeg) is preserved. Wrapping the stream in
+    // `new Response(response.body)` first — the previous code here —
+    // constructs a fresh Response with no headers, so the resulting blob's
+    // `type` comes back as "", and some browsers (notably Chrome/Edge on
+    // Windows) refuse to play an untyped blob: URL, firing audio.onerror
+    // with no useful detail. This was almost certainly the actual cause of
+    // "Audio playback failed. Using backup voice." even with a valid key.
+    let blob = await response.blob();
     if (controller.signal.aborted) return;
+    if (!blob.type) {
+      blob = new Blob([blob], { type: 'audio/mpeg' });
+    }
 
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     activeAudio = audio;
 
     // Wire an analyser so the UI can visualize real playback loudness.
-    // Best-effort only — playback still proceeds if this fails.
+    // Best-effort ONLY: `createMediaElementSource` permanently reroutes this
+    // <audio> element's output through the Web Audio graph — nothing plays
+    // through it again except via `analyser.connect(audioCtx.destination)`.
+    // If the AudioContext doesn't actually reach 'running' (autoplay policy
+    // can leave it 'suspended' even after resume() resolves, particularly
+    // when resume() runs several `await`s away from the original click, as
+    // it does here), the element still fires onplay/onended normally —
+    // decoding and "playing" internally — while producing total silence,
+    // with no error anywhere. That matches "it shows Elena/River speaking
+    // but I can't hear it" exactly. So: only make this connection when the
+    // context is confirmed running; otherwise skip it entirely and leave the
+    // element on its normal, always-audible default output path.
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!audioCtx || audioCtx.state === 'closed') {
         audioCtx = new AudioCtx();
       }
-      if (audioCtx.state === 'suspended') await audioCtx.resume();
-      const source = audioCtx.createMediaElementSource(audio);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyser.connect(audioCtx.destination);
-      if (options.onVolume) startVolumeLoop(options.onVolume);
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      if (audioCtx.state === 'running') {
+        const source = audioCtx.createMediaElementSource(audio);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        if (options.onVolume) startVolumeLoop(options.onVolume);
+      } else {
+        console.warn('[ElevenLabs] AudioContext not running (state:', audioCtx.state, ') — skipping visualizer, playing audio natively.');
+        options.onVolume?.(0);
+      }
     } catch (e) {
-      console.warn('[ElevenLabs] Visualizer unavailable:', e);
+      console.warn('[ElevenLabs] Visualizer unavailable, playing audio natively:', e);
     }
 
     audio.onplay = () => options.onStart?.();
@@ -266,7 +295,14 @@ export async function speakWithElevenLabs(text: string, options: SpeakOptions = 
       options.onVolume?.(0);
       URL.revokeObjectURL(url);
       if (activeAudio === audio) activeAudio = null;
-      options.onError?.('Audio playback failed.');
+      const code = audio.error?.code;
+      const reason =
+        code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED ? 'unsupported audio format' :
+        code === MediaError.MEDIA_ERR_DECODE ? 'could not decode audio' :
+        code === MediaError.MEDIA_ERR_NETWORK ? 'network error loading audio' :
+        code === MediaError.MEDIA_ERR_ABORTED ? 'playback aborted' :
+        'unknown playback error';
+      options.onError?.(`Audio playback failed (${reason}).`);
     };
 
     await audio.play();
