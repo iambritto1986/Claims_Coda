@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, signInWithPopup, GoogleAuthProvider, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { User, signInWithPopup, GoogleAuthProvider, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -17,7 +17,7 @@ interface AuthContextType {
   login: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string) => Promise<void>;
-  loginAsGuest: (customEmail?: string, customName?: string) => void;
+  loginAsGuest: (customEmail?: string, customName?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -45,6 +45,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Subscribe to Firebase Auth
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+      if (currentUser?.isAnonymous) {
+        // This subscription was already active (from mount) before
+        // loginAsGuest() below calls signInAnonymously(), so it fires again
+        // for that same sign-in. loginAsGuest() already sets the guest user
+        // state itself (with the friendly demo name/email) — if this branch
+        // didn't skip, it would immediately overwrite that with isGuest:
+        // false and a null email/displayName (anonymous Firebase users have
+        // neither), silently un-guesting the session right after it started.
+        setLoading(false);
+        return;
+      }
       if (currentUser) {
         // Create user doc if not exists
         const userRef = doc(db, 'users', currentUser.uid);
@@ -107,15 +118,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const loginAsGuest = (customEmail: string = 'demo.member@claimcoda.app', customName: string = 'Eleanor Vance') => {
-    const guestUser: AppUser = {
-      uid: `guest-${Math.random().toString(36).substring(2, 9)}`,
-      email: customEmail,
-      displayName: customName,
-      isGuest: true,
-    };
-    localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(guestUser));
-    setUser(guestUser);
+  // "Guest" used to mean a uid fabricated locally (`guest-${random}`) with no
+  // real Firebase Auth session behind it. That uid never satisfies
+  // `request.auth.uid` in firestore.rules (every rule requires
+  // `isSignedIn()`), so every read/write for a guest was silently rejected
+  // with "Missing or insufficient permissions" and the app fell back to
+  // in-memory-only state — meaning demo/guest cases were never actually
+  // durable, contradicting the PRD's "durable case history" requirement,
+  // and it logged a scary-looking permission error on every load.
+  //
+  // Fixed to use real Firebase Anonymous Authentication: same one-click,
+  // no-signup instant access, but backed by a real `request.auth.uid` that
+  // Firestore rules accept, so guest cases actually persist. This requires
+  // the "Anonymous" sign-in provider to be enabled in the Firebase console
+  // (Authentication → Sign-in method) — if it isn't yet, this falls back to
+  // the old local-only behavior so the demo still works, just non-durably,
+  // and logs a clear one-line instruction instead of a scary Firestore error.
+  const loginAsGuest = async (customEmail: string = 'demo.member@claimcoda.app', customName: string = 'Eleanor Vance') => {
+    try {
+      const cred = await signInAnonymously(auth);
+      const guestUser: AppUser = {
+        uid: cred.user.uid,
+        email: customEmail,
+        displayName: customName,
+        isGuest: true,
+      };
+      localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(guestUser));
+      setUser(guestUser);
+    } catch (err) {
+      console.warn(
+        'Anonymous sign-in unavailable — falling back to a local-only guest session (case data will NOT be saved to Firestore). ' +
+        'To fix: Firebase Console → Authentication → Sign-in method → enable "Anonymous". Underlying error:',
+        err
+      );
+      const guestUser: AppUser = {
+        uid: `guest-${Math.random().toString(36).substring(2, 9)}`,
+        email: customEmail,
+        displayName: customName,
+        isGuest: true,
+      };
+      localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(guestUser));
+      setUser(guestUser);
+    }
   };
 
   const logout = async () => {
