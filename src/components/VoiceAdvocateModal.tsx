@@ -60,12 +60,12 @@ interface ChatMessage {
 type VoiceEngine = 'elevenlabs' | 'gemini-live';
 
 export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateProps) {
-  // Which conversational engine drives the voice. ElevenLabs is the default —
-  // it's dramatically more natural than the browser's SpeechSynthesis engine
-  // and doesn't depend on a single experimental Google WebSocket model
-  // staying available. Gemini Live remains as an advanced, ultra-low-latency
-  // open-mic option for anyone who wants true speech-to-speech.
-  const [engine, setEngine] = useState<VoiceEngine>('elevenlabs');
+  // Which conversational engine drives the voice. Gemini Live (Zephyr) is now
+  // the default — true real-time speech-to-speech, the same model/voice combo
+  // already verified working elsewhere, and it only depends on the Gemini key
+  // already used for the rest of this app (no separate paid quota to run out
+  // of, unlike ElevenLabs). ElevenLabs remains available as a secondary option.
+  const [engine, setEngine] = useState<VoiceEngine>('gemini-live');
 
   // ElevenLabs voice profile
   const [elevenVoiceId, setElevenVoiceId] = useState<string>(getElevenLabsVoiceId());
@@ -73,7 +73,7 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
   const [elevenKeySaved, setElevenKeySaved] = useState(false);
 
   // Gemini Live Session & Voice Profile
-  const [selectedVoice, setSelectedVoice] = useState<GeminiLiveVoice>('Aoede');
+  const [selectedVoice, setSelectedVoice] = useState<GeminiLiveVoice>('Zephyr');
   const [selectedModel, setSelectedModel] = useState<string>(GEMINI_LIVE_MODELS[0].id);
   const [liveState, setLiveState] = useState<'disconnected' | 'connecting' | 'connected' | 'speaking' | 'listening'>('disconnected');
 
@@ -95,13 +95,10 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
   const [inputText, setInputText] = useState('');
   const [lastError, setLastError] = useState<string | null>(null);
 
-  // Settings Drawer — opens automatically until ElevenLabs is configured,
-  // since that's now the primary voice engine. (Previously this only opened
-  // when the Gemini key was also missing, so anyone who already had a Gemini
-  // key from before never saw a prompt to add the ElevenLabs key at all —
-  // they'd just keep hearing the backup browser voice with no clear signal
-  // why.)
-  const [showSettings, setShowSettings] = useState(!isElevenLabsConfigured());
+  // Settings Drawer — opens automatically until a Gemini key is configured,
+  // since Gemini Live is now the primary voice engine and needs that key to
+  // connect at all.
+  const [showSettings, setShowSettings] = useState(!getGeminiApiKey());
   const [geminiKeyInput, setGeminiKeyInput] = useState(getGeminiApiKey());
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
 
@@ -149,6 +146,15 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
   const speakText = useCallback(
     (text: string) => {
       if (!voiceEnabled) return;
+
+      // ElevenLabs and the browser's SpeechSynthesis engine don't know about
+      // each other, and the FloatingAvatarGuide widget on the page behind
+      // this modal can independently be speaking through either one too.
+      // Silence both before starting a new utterance so opening this modal
+      // (or replaying a line) never overlaps with whatever was already
+      // playing — that overlap is what "two voices at once" was.
+      stopElevenLabsSpeech();
+      voiceEngine.stop();
 
       if (isElevenLabsConfigured()) {
         pauseRecognitionForPlayback();
@@ -374,26 +380,43 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
       return;
     }
 
-    const voiceObj = LIVE_VOICES.find((v) => v.id === selectedVoice);
-    const personaDisplayName = engine === 'elevenlabs' ? currentElevenVoice.name.split(' ')[0] : voiceObj?.name.split(' ')[0] || selectedVoice;
-    const greetingText = `Hi there! I'm ${personaDisplayName}, your ClaimCoda appeal co-pilot. I'm ready to navigate your claim with ${insurerName}. How can I help you today? You can ask me why it was denied, what documents you need, or check your deadline.`;
-
-    setMessages([
-      {
-        id: 'msg-init',
-        sender: 'advocate',
-        text: greetingText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      },
-    ]);
     setLastError(null);
 
-    if (engine === 'gemini-live' && getGeminiApiKey()) {
-      initGeminiLive();
-    }
+    if (engine === 'gemini-live') {
+      if (getGeminiApiKey()) {
+        // Don't pre-populate a canned greeting here — Zephyr speaks its own
+        // greeting once the live session connects (see the kickoff message
+        // in geminiLiveClient.ts's connect()), and onModelTranscript below
+        // fills in that first advocate bubble as it's transcribed. Showing a
+        // separate hardcoded greeting first would mean two different
+        // greetings (and two different voices) back to back.
+        setMessages([]);
+        initGeminiLive();
+      } else {
+        setMessages([
+          {
+            id: 'msg-init',
+            sender: 'advocate',
+            text: 'Add your Gemini API key in Settings to start our live conversation — it uses the same key as the rest of ClaimCoda.',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+      }
+    } else {
+      const greetingText = `Hi there! I'm ${currentElevenVoice.name.split(' ')[0]}, your ClaimCoda appeal co-pilot. I'm ready to navigate your claim with ${insurerName}. How can I help you today? You can ask me why it was denied, what documents you need, or check your deadline.`;
 
-    if (voiceEnabled) {
-      speakText(greetingText);
+      setMessages([
+        {
+          id: 'msg-init',
+          sender: 'advocate',
+          text: greetingText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+
+      if (voiceEnabled) {
+        speakText(greetingText);
+      }
     }
 
     return () => {
@@ -617,7 +640,7 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
           <div className="p-4 bg-brand-surface-light border-b border-brand-border text-xs animate-in fade-in duration-150 max-h-[300px] overflow-y-auto">
             {/* Engine Toggle */}
             <div className="flex items-center gap-2 mb-3">
-              {(['elevenlabs', 'gemini-live'] as VoiceEngine[]).map((eng) => (
+              {(['gemini-live', 'elevenlabs'] as VoiceEngine[]).map((eng) => (
                 <button
                   key={eng}
                   type="button"
@@ -628,11 +651,11 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
                   )}
                 >
                   <div className="font-medium text-[11px] flex items-center gap-1.5">
-                    {eng === 'elevenlabs' ? <Waves className="w-3.5 h-3.5" /> : <Radio className="w-3.5 h-3.5" />}
-                    <span>{eng === 'elevenlabs' ? 'ElevenLabs Voice' : 'Gemini Live (Beta)'}</span>
+                    {eng === 'gemini-live' ? <Radio className="w-3.5 h-3.5" /> : <Waves className="w-3.5 h-3.5" />}
+                    <span>{eng === 'gemini-live' ? 'Gemini Live (Zephyr)' : 'ElevenLabs Voice'}</span>
                   </div>
                   <div className="text-[10px] opacity-75 mt-0.5">
-                    {eng === 'elevenlabs' ? 'Natural, reliable — recommended' : 'Ultra-low-latency open mic, experimental'}
+                    {eng === 'gemini-live' ? 'Real-time speech-to-speech — recommended' : 'Requires a paid ElevenLabs plan/credits'}
                   </div>
                 </button>
               ))}
@@ -741,6 +764,24 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
           </div>
         )}
 
+        {/* Gemini Live key nudge */}
+        {engine === 'gemini-live' && !getGeminiApiKey() && !showSettings && (
+          <div className="mx-4 mt-3 p-3 rounded-xl border border-brand-gold/40 bg-brand-gold/10 flex items-center justify-between gap-3 text-[11px]">
+            <div className="flex items-center gap-2 text-brand-text">
+              <Radio className="w-4 h-4 text-brand-gold shrink-0" />
+              <span>
+                <strong className="text-brand-gold">Live conversation is disconnected</strong> — add your Gemini API key to connect Zephyr's live voice. It's the same key used for extraction and drafting elsewhere in ClaimCoda.
+              </span>
+            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="bg-brand-gold text-brand-bg font-medium px-3 py-1.5 rounded-lg shrink-0 hover:bg-brand-gold/90 transition-all"
+            >
+              Add Key
+            </button>
+          </div>
+        )}
+
         {/* Premium Voice Setup Nudge — impossible to miss, unlike a small header badge */}
         {engine === 'elevenlabs' && !isElevenLabsConfigured() && !showSettings && (
           <div className="mx-4 mt-3 p-3 rounded-xl border border-brand-gold/40 bg-brand-gold/10 flex items-center justify-between gap-3 text-[11px]">
@@ -804,9 +845,13 @@ export function VoiceAdvocateModal({ isOpen, onClose, caseData }: VoiceAdvocateP
             </span>
           </div>
 
-          {engine === 'elevenlabs' && (
+          {engine === 'elevenlabs' ? (
             <span className="text-[10px] text-brand-gold bg-brand-gold/10 px-2 py-0.5 rounded-full border border-brand-gold/30 hidden sm:inline-block">
               Voice: <strong>{currentElevenVoice.name.split(' —')[0]}</strong>
+            </span>
+          ) : (
+            <span className="text-[10px] text-brand-gold bg-brand-gold/10 px-2 py-0.5 rounded-full border border-brand-gold/30 hidden sm:inline-block">
+              Voice: <strong>{(LIVE_VOICES.find((v) => v.id === selectedVoice)?.name.split(' (')[0]) || selectedVoice}</strong>
             </span>
           )}
         </div>

@@ -4,6 +4,19 @@ import { getStrategyForCategory } from './denialStrategies';
 
 export const GEMINI_STORAGE_KEY = 'claimcoda_gemini_api_key';
 
+// Text/JSON generation model for extraction, draft generation, and the
+// conversational advocate. `gemini-2.5-flash` (the previous value here) was
+// retired by Google — every call using it returned HTTP 404 "no longer
+// available to new users", which was silently caught and made EVERY AI
+// feature in this app fall back to hardcoded/rule-based logic (deterministic
+// fact extraction, templated appeal drafts, keyword-matched chat replies)
+// with no error ever surfaced to the user. That silent fallback is why the
+// Voice Advocate's replies looked "non-intelligent" and templated — they
+// were. Verified working against the live API on 2026-09-11. If this model
+// is retired too, check https://ai.google.dev/gemini-api/docs/models and
+// update this one constant.
+const GEMINI_TEXT_MODEL = 'gemini-3.6-flash';
+
 export function getGeminiApiKey(): string {
   if (typeof window !== 'undefined') {
     const customKey = localStorage.getItem(GEMINI_STORAGE_KEY);
@@ -96,7 +109,7 @@ Respond with a valid JSON object matching this schema:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: GEMINI_TEXT_MODEL,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -344,7 +357,7 @@ Generate a JSON object with the following structured sections:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: GEMINI_TEXT_MODEL,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -368,7 +381,7 @@ Generate a JSON object with the following structured sections:
           icdCodes,
           sections,
           evidenceListText,
-          modelUsed: 'gemini-2.5-flash',
+          modelUsed: GEMINI_TEXT_MODEL,
           confirmedFacts,
         });
       }
@@ -624,7 +637,7 @@ STRICT VOICE DIALOGUE RULES:
 5. Return clean spoken text without bullet characters or markdown symbols.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: GEMINI_TEXT_MODEL,
         contents: systemInstruction,
         config: {
           temperature: 0.3,
@@ -657,7 +670,11 @@ function runIntelligentConversationalFallback(
   billedAmt?: string
 ): string {
   const q = query.toLowerCase().trim();
-  const insurer = caseData?.insurerName && caseData.insurerName !== 'Insurer on File' ? caseData.insurerName : 'your health insurer';
+  // No leading "your" baked in here — every template below adds "your "
+  // itself where grammar needs it. The old version baked "your" into this
+  // default, so templates that also wrote "your ${insurer}" doubled up into
+  // "your your health insurer claim" whenever no real insurer name was set.
+  const insurer = caseData?.insurerName && caseData.insurerName !== 'Insurer on File' ? caseData.insurerName : 'health insurer';
   const category = caseData?.denialCategory || 'medical_necessity';
   const hasExtractedData = caseData?.extractedFacts && caseData.extractedFacts.length > 0;
 
@@ -685,17 +702,17 @@ function runIntelligentConversationalFallback(
     q.includes('denial code')
   ) {
     if (extractedReason && extractedReason.length > 3) {
-      return `According to the notice, ${insurer} denied your claim for ${cptCodes || 'the service'} totaling ${deniedAmt || 'the balance'} stating: "${extractedReason}". Specifically, they claim the clinical documentation did not prove prerequisite conservative treatment. We can counter this by submitting your doctor's signed Letter of Medical Necessity in Step 3.`;
+      return `According to the notice, your ${insurer} denied your claim for ${cptCodes || 'the service'} totaling ${deniedAmt || 'the balance'} stating: "${extractedReason}". Specifically, they claim the clinical documentation did not prove prerequisite conservative treatment. We can counter this by submitting your doctor's signed Letter of Medical Necessity in Step 3.`;
     }
     if (hasExtractedData) {
-      return `${insurer} denied this claim stating the care was not medically necessary under their clinical policy bulletin. To overturn this, we need to prove you satisfied their prerequisites by attaching your treating doctor's chart notes.`;
+      return `Your ${insurer} denied this claim stating the care was not medically necessary under their clinical policy bulletin. To overturn this, we need to prove you satisfied their prerequisites by attaching your treating doctor's chart notes.`;
     }
     return `For this case, a denial notice has not been scanned yet. Please upload your Explanation of Benefits in Step 1 or select a sample case below, and I will extract the exact reason and codes for you immediately!`;
   }
 
   // 3. Amount / Financial Questions
   if (q.includes('how much') || q.includes('cost') || q.includes('amount') || q.includes('balance') || q.includes('bill') || q.includes('owe') || q.includes('money')) {
-    return `On this claim, the total billed amount was ${billedAmt || '$3,850.00'}, and ${insurer} denied coverage for ${deniedAmt || '$3,850.00'}, leaving you responsible for the balance. Filing this appeal demands full reimbursement.`;
+    return `On this claim, the total billed amount was ${billedAmt || '$3,850.00'}, and your ${insurer} denied coverage for ${deniedAmt || '$3,850.00'}, leaving you responsible for the balance. Filing this appeal demands full reimbursement.`;
   }
 
   // 4. Procedure / CPT / Diagnosis Questions
@@ -705,7 +722,7 @@ function runIntelligentConversationalFallback(
 
   // 5. Evidence & Documents
   if (q.includes('document') || q.includes('evidence') || q.includes('ask my doctor') || q.includes('lmn') || q.includes('records') || q.includes('what do i need') || q.includes('attach')) {
-    return `For this ${category.replace(/_/g, ' ')} denial from ${insurer}, the most critical evidence is a signed Letter of Medical Necessity from your treating physician, plus clinical notes from your visit. When you upload them in Step 3, ClaimCoda automatically indexes them in your final appeal packet.`;
+    return `For this ${category.replace(/_/g, ' ')} denial from your ${insurer}, the most critical evidence is a signed Letter of Medical Necessity from your treating physician, plus clinical notes from your visit. When you upload them in Step 3, ClaimCoda automatically indexes them in your final appeal packet.`;
   }
 
   // 6. Deadlines & Timelines
@@ -715,12 +732,12 @@ function runIntelligentConversationalFallback(
 
   // 7. External Review / Level 2
   if (q.includes('external review') || q.includes('level 2') || q.includes('iro') || q.includes('denied again') || q.includes('if they deny') || q.includes('uphold')) {
-    return `If ${insurer} upholds their denial after your internal appeal, you are entitled to a free Level 2 Independent External Review. An independent doctor with no ties to ${insurer} reviews the case, and their decision is legally binding on the insurance company.`;
+    return `If your ${insurer} upholds their denial after your internal appeal, you are entitled to a free Level 2 Independent External Review. An independent doctor with no ties to your ${insurer} reviews the case, and their decision is legally binding on the insurance company.`;
   }
 
   // 8. Submission / Certified Mail
   if (q.includes('certified mail') || q.includes('how to send') || q.includes('mail') || q.includes('fax') || q.includes('submit')) {
-    return `We strongly recommend sending your appeal packet via USPS Certified Mail with Return Receipt Requested, or via the payer's secure fax. This gives you a dated tracking barcode proving ${insurer} received your packet on time.`;
+    return `We strongly recommend sending your appeal packet via USPS Certified Mail with Return Receipt Requested, or via the payer's secure fax. This gives you a dated tracking barcode proving your ${insurer} received your packet on time.`;
   }
 
   // 9. Next step / guidance
@@ -730,7 +747,7 @@ function runIntelligentConversationalFallback(
 
   // 10. Acknowledgments & Identity
   if (q.includes('thank') || q === 'ok' || q === 'okay' || q === 'got it' || q === 'great' || q === 'perfect') {
-    return `You're very welcome! Let's get this appeal prepared and submitted to ${insurer}. Let me know whenever you're ready to move forward.`;
+    return `You're very welcome! Let's get this appeal prepared and submitted to your ${insurer}. Let me know whenever you're ready to move forward.`;
   }
 
   if (q.includes('who are you') || q.includes('what are you') || q.includes('what is claimcoda')) {
@@ -738,14 +755,14 @@ function runIntelligentConversationalFallback(
   }
 
   // 11. Contextual fallback acknowledging user
-  return `I understand. For this ${cptCodes || 'claim'} with ${insurer}, our goal is providing the clinical evidence needed to reverse the ${deniedAmt || 'denial'}. What specific question can I answer for you right now?`;
+  return `I understand. For this ${cptCodes || 'claim'} with your ${insurer}, our goal is providing the clinical evidence needed to reverse the ${deniedAmt || 'denial'}. What specific question can I answer for you right now?`;
 }
 
 /**
  * System Instruction for Gemini Multimodal Live API (BidiGenerateContent WebSocket)
  * Injects explicit vocal directives, natural pauses, and grounded claim context.
  */
-export function generateGeminiLiveSystemInstruction(caseData?: Partial<CaseRecord>, voicePersonaName: string = 'Aoede'): string {
+export function generateGeminiLiveSystemInstruction(caseData?: Partial<CaseRecord>, voicePersonaName: string = 'Zephyr'): string {
   const insurer = caseData?.insurerName || 'the health plan on file';
   const claimNum = caseData?.claimNumber || 'referenced on notice';
   const category = caseData?.denialCategory || 'medical_necessity';

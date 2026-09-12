@@ -3,19 +3,23 @@
  * Connects to Google's Gemini Multimodal Live API via bidirectional WebSockets (BidiGenerateContent)
  * for native speech-to-speech streaming, high-fidelity neural voices, and low-latency audio dialogue.
  *
- * NOTE: This raw WebSocket path is intentionally the "advanced / ultra-low-latency"
- * option in ClaimCoda — it depends on a specific preview model staying available
- * on Google's side (models get retired with little notice; `gemini-2.0-flash-exp`,
- * the model this file used to hard-code, was deprecated, which is why the Voice
- * Advocate previously always silently fell back to the robotic browser voice).
- * The default, reliable voice path is now ElevenLabs (see elevenLabsService.ts).
+ * Gemini Live (Zephyr voice, gemini-3.1-flash-live-preview) is now the PRIMARY
+ * voice engine — the same model/voice combination already used and verified in
+ * another app in this workspace. ElevenLabs (elevenLabsService.ts) remains
+ * available as a secondary option, but it depends on a paid, quota-limited
+ * third-party account; this path only depends on the Gemini key already used
+ * elsewhere in the app. Preview models can still be retired by Google with
+ * little notice (see the GEMINI_LIVE_MODELS comment below) — if this model
+ * ever 404s or the WebSocket closes with a non-1000 code citing an unknown
+ * model, check https://ai.google.dev/gemini-api/docs/models for the current
+ * name and update the constant below.
  */
 
-export type GeminiLiveVoice = 'Aoede' | 'Charon' | 'Fenrir' | 'Kore' | 'Puck';
+export type GeminiLiveVoice = 'Zephyr' | 'Aoede' | 'Charon' | 'Fenrir' | 'Kore' | 'Puck';
 
 export const GEMINI_LIVE_MODELS: Array<{ id: string; label: string }> = [
-  { id: 'models/gemini-2.5-flash-native-audio-preview-12-2025', label: 'Gemini 2.5 Flash — Native Audio (recommended)' },
-  { id: 'models/gemini-3.1-flash-live-preview', label: 'Gemini 3.1 Flash Live (newest, preview)' },
+  { id: 'models/gemini-3.1-flash-live-preview', label: 'Gemini 3.1 Flash Live (recommended)' },
+  { id: 'models/gemini-2.5-flash-native-audio-preview-12-2025', label: 'Gemini 2.5 Flash — Native Audio' },
 ];
 
 export interface GeminiLiveConfig {
@@ -40,6 +44,12 @@ export interface GeminiLiveCallbacks {
 }
 
 export const LIVE_VOICES: Array<{ id: GeminiLiveVoice; name: string; description: string; gender: 'female' | 'male' }> = [
+  {
+    id: 'Zephyr',
+    name: 'Zephyr (Reassuring & Confident)',
+    description: 'The default ClaimCoda advocate voice — bright, warm, and confident',
+    gender: 'female',
+  },
   {
     id: 'Aoede',
     name: 'Aoede (Empathetic & Warm)',
@@ -132,6 +142,18 @@ export class GeminiLiveClient {
 
         // 2. Initialize microphone stream
         await this.startAudioCapture();
+
+        // 3. Kick off the conversation. Gemini Live only speaks in response to
+        // a turn, so without this the session connects into silence until the
+        // user says something first — which read as "did it even connect?"
+        // Sent as a real user-turn (Gemini requires one to generate a
+        // response) but suppressed from the on-screen transcript
+        // (announceAsUser: false) so it doesn't show up as if the user typed
+        // it. The model already has full claim context from systemInstruction.
+        this.sendTextMessage(
+          '(Session start — greet the patient warmly in one or two sentences, briefly introducing yourself, then ask how you can help with their claim.)',
+          false
+        );
       };
 
       this.ws.onmessage = async (event: MessageEvent) => {
@@ -308,9 +330,12 @@ export class GeminiLiveClient {
   }
 
   /**
-   * Send a text message turn to Gemini Live
+   * Send a text message turn to Gemini Live.
+   * @param announceAsUser When false, the text is sent to the model but NOT
+   *   reported via onUserTranscript — used for the internal greeting kickoff,
+   *   which shouldn't appear as though the user typed it.
    */
-  public sendTextMessage(text: string) {
+  public sendTextMessage(text: string, announceAsUser: boolean = true) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const message = {
@@ -326,7 +351,9 @@ export class GeminiLiveClient {
     };
 
     this.ws.send(JSON.stringify(message));
-    this.callbacks.onUserTranscript?.(text);
+    if (announceAsUser) {
+      this.callbacks.onUserTranscript?.(text);
+    }
   }
 
   /**
